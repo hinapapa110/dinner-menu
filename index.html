@@ -128,6 +128,8 @@
   .modal .m-tags .tag { display:inline-block; background:#f6ede4; border-radius:6px; padding:2px 9px; margin:0 5px 5px 0; font-size:.75rem; color:var(--muted); }
   .modal .m-ing { font-size: .92rem; line-height: 1.8; }
   .modal .m-ing span:not(:last-child)::after { content:"・"; color: var(--muted); }
+  .modal .m-ing .ing-row { padding: 3px 0; border-bottom: 1px dashed var(--border); }
+  .modal .m-ing .ing-row:last-child { border-bottom: none; }
   .modal .m-steps { padding-left: 1.4em; }
   .modal .m-steps li { font-size: .95rem; margin-bottom: 9px; padding-left: 4px; }
   .modal .m-steps li::marker { color: var(--primary); font-weight: 700; }
@@ -167,6 +169,7 @@
 </div>
 
 <script src="recipes.js"></script>
+<script src="amounts.js"></script>
 <script>
 // 食材カテゴリ
 const INGREDIENTS = [
@@ -473,7 +476,10 @@ function openRecipe(name){
   const steps = (typeof RECIPES!=="undefined" && RECIPES[name]) ? RECIPES[name] : ["準備中です。"];
   document.getElementById("mTitle").textContent = m.name;
   document.getElementById("mTags").innerHTML = `<span class="tag">${m.genre}</span>` + m.tags.map(t=>`<span class="tag">${t}</span>`).join("");
-  document.getElementById("mIng").innerHTML = m.ing.map(x=>`<span>${x}</span>`).join("");
+  const amounts = (typeof AMOUNTS!=="undefined" && AMOUNTS[name]) ? AMOUNTS[name] : null;
+  document.getElementById("mIng").innerHTML = amounts
+    ? amounts.map(x=>`<div class="ing-row">${x}</div>`).join("")
+    : m.ing.map(x=>`<span>${x}</span>`).join("");
   document.getElementById("mSteps").innerHTML = steps.map(s=>`<li>${s}</li>`).join("");
   const ov = document.getElementById("modalOverlay");
   ov.classList.add("open");
