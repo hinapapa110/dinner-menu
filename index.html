@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#e8714a">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍳</text></svg>">
 <title>食材から夕飯メニュー</title>
 <style>
   :root {
@@ -29,6 +31,41 @@
   header { text-align: center; padding: 12px 0 18px; }
   h1 { font-size: 1.5rem; color: var(--primary-dark); }
   .sub { color: var(--muted); font-size: .85rem; margin-top: 4px; }
+
+  .topbar { display: flex; gap: 10px; margin-bottom: 16px; }
+  .search-wrap { position: relative; flex: 1; }
+  #searchBox {
+    width: 100%; font-family: inherit; font-size: .95rem;
+    padding: 11px 38px 11px 14px;
+    border: 2px solid var(--border); border-radius: 14px;
+    background: #fff; color: var(--text); outline: none;
+    -webkit-appearance: none;
+  }
+  #searchBox:focus { border-color: var(--primary); }
+  .search-clear {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #f6ede4; color: var(--muted); font-size: 1rem; line-height: 1;
+    padding: 0; display: none;
+  }
+  .search-clear.show { display: block; }
+  .btn-lucky {
+    font-family: inherit; font-size: .88rem; font-weight: 700;
+    background: var(--primary); color: #fff; border: none;
+    border-radius: 14px; padding: 0 16px; cursor: pointer;
+    box-shadow: var(--shadow); white-space: nowrap;
+  }
+  .btn-lucky:active { transform: scale(.96); }
+
+  .fav-btn {
+    position: absolute; top: 10px; right: 10px;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #faf3ec; font-size: 1.05rem; line-height: 1;
+    padding: 0; display: flex; align-items: center; justify-content: center;
+    filter: grayscale(1) opacity(.45);
+  }
+  .fav-btn.on { filter: none; background: #fff3d6; }
+  body.modal-open { overflow: hidden; }
 
   .ingredients {
     display: grid;
@@ -97,7 +134,7 @@
   .menu-card .ing-list span:not(:last-child)::after { content: "・"; color: var(--muted); }
 
   .empty { text-align: center; color: var(--muted); padding: 40px 0; }
-  .menu-card { cursor: pointer; }
+  .menu-card { cursor: pointer; position: relative; }
   .menu-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(180,120,80,.18); }
   .menu-card .more { font-size: .72rem; color: var(--primary-dark); font-weight: 700; margin-top: 8px; }
 
@@ -142,6 +179,14 @@
   <h1>🍳 食材から夕飯メニュー</h1>
   <div class="sub">使いたい食材を選ぶと、その食材のメニューを提案します。</div>
 </header>
+
+<div class="topbar">
+  <div class="search-wrap">
+    <input type="search" id="searchBox" placeholder="🔍 メニュー名で探す" oninput="onSearch(this.value)">
+    <button class="search-clear" id="searchClear" onclick="clearSearch()" aria-label="検索をクリア">×</button>
+  </div>
+  <button class="btn-lucky" onclick="luckyPick()">🎲 完全おまかせ</button>
+</div>
 
 <div class="ingredients" id="ingredients"></div>
 
@@ -404,37 +449,66 @@ const MENUS = [
 
 let selected = null;
 let genreFilter = null; // null = すべて
+let searchQuery = "";
+let favs = new Set(JSON.parse(localStorage.getItem("dinner-favs") || "[]"));
 
 function buildIngredients(){
   const el = document.getElementById("ingredients");
-  el.innerHTML = INGREDIENTS.map(g=>{
+  const btns = INGREDIENTS.map(g=>{
     const n = MENUS.filter(m=>m.main===g.key).length;
     return `<button class="ing-btn" data-k="${g.key}" onclick="selectIngredient('${g.key}')">
       <span class="emoji">${g.emoji}</span>
       <span class="label">${g.label}</span>
       <span class="count">${n}品</span>
     </button>`;
-  }).join("");
+  });
+  btns.push(`<button class="ing-btn" data-k="fav" onclick="selectIngredient('fav')">
+      <span class="emoji">⭐</span>
+      <span class="label">お気に入り</span>
+      <span class="count" id="favCount">${favs.size}品</span>
+    </button>`);
+  el.innerHTML = btns.join("");
+  document.querySelectorAll(".ing-btn").forEach(b=> b.classList.toggle("on", b.dataset.k===selected));
+}
+
+// 選択中の食材（またはお気に入り）に該当する全メニュー
+function baseList(){
+  if(selected==="fav") return MENUS.filter(m=>favs.has(m.name));
+  return MENUS.filter(m=>m.main===selected);
 }
 
 function selectIngredient(key){
   selected = key;
   genreFilter = null; // 食材を変えたらジャンル絞り込みはリセット
+  clearSearch(true);
+  localStorage.setItem("dinner-last", key);
   document.querySelectorAll(".ing-btn").forEach(b=> b.classList.toggle("on", b.dataset.k===key));
   buildGenreBar();
   renderMenus();
+}
+
+function toggleFav(name, ev){
+  ev.stopPropagation();
+  if(favs.has(name)) favs.delete(name); else favs.add(name);
+  localStorage.setItem("dinner-favs", JSON.stringify([...favs]));
+  const fc = document.getElementById("favCount");
+  if(fc) fc.textContent = favs.size + "品";
+  if(selected==="fav"){ buildGenreBar(); renderMenus(); }
+  else if(searchQuery){ renderSearch(); }
+  else { renderMenus(); }
 }
 
 function buildGenreBar(){
   const bar = document.getElementById("genreBar");
   if(!selected){ bar.style.display="none"; bar.innerHTML=""; return; }
   // この食材に存在するジャンルを出現順で列挙
+  const base = baseList();
   const genres = [];
-  MENUS.filter(m=>m.main===selected).forEach(m=>{ if(!genres.includes(m.genre)) genres.push(m.genre); });
+  base.forEach(m=>{ if(!genres.includes(m.genre)) genres.push(m.genre); });
   bar.style.display = "flex";
   const all = `<span class="genre-chip ${genreFilter===null?'on':''}" onclick="filterGenre(null)">すべて</span>`;
   bar.innerHTML = all + genres.map(g=>{
-    const n = MENUS.filter(m=>m.main===selected && m.genre===g).length;
+    const n = base.filter(m=>m.genre===g).length;
     return `<span class="genre-chip ${genreFilter===g?'on':''}" onclick="filterGenre('${g}')">${g} ${n}</span>`;
   }).join("");
 }
@@ -446,28 +520,47 @@ function filterGenre(g){
 }
 
 function currentList(){
-  return MENUS.filter(m=>m.main===selected && (genreFilter===null || m.genre===genreFilter));
+  return baseList().filter(m=> genreFilter===null || m.genre===genreFilter);
+}
+
+function cardHTML(m, pick){
+  const star = favs.has(m.name);
+  return `
+    <div class="menu-card ${pick?'pick':''}" onclick="openRecipe('${m.name}')">
+      <button class="fav-btn ${star?'on':''}" onclick="toggleFav('${m.name}', event)" aria-label="お気に入り">⭐</button>
+      <div class="name">${m.name}</div>
+      <div class="tags"><span class="tag">${m.genre}</span>${m.tags.map(t=>`<span class="tag">${t}</span>`).join("")}</div>
+      <div class="ing-title">材料</div>
+      <div class="ing-list">${m.ing.map(x=>`<span>${x}</span>`).join("")}</div>
+      <div class="more">タップで作り方 ▶</div>
+    </div>`;
 }
 
 function renderMenus(pickIdx){
   const head = document.getElementById("resultHead");
   const grid = document.getElementById("menuGrid");
   const empty = document.getElementById("emptyMsg");
-  if(!selected){ head.style.display="none"; grid.innerHTML=""; empty.style.display="block"; return; }
+  if(!selected){ head.style.display="none"; grid.innerHTML=""; empty.style.display="block"; empty.textContent="↑ 上から食材を選んでください 🥢"; return; }
   empty.style.display="none";
   head.style.display="flex";
-  const info = INGREDIENTS.find(g=>g.key===selected);
   const list = currentList();
   const suffix = genreFilter ? `・${genreFilter}` : "";
-  document.getElementById("resultTitle").innerHTML = `<span class="emoji">${info.emoji}</span>${info.label}${suffix}のメニュー（${list.length}品）`;
-  grid.innerHTML = list.map((m,i)=>`
-    <div class="menu-card ${i===pickIdx?'pick':''}" onclick="openRecipe('${m.name}')">
-      <div class="name">${m.name}</div>
-      <div class="tags"><span class="tag">${m.genre}</span>${m.tags.map(t=>`<span class="tag">${t}</span>`).join("")}</div>
-      <div class="ing-title">材料</div>
-      <div class="ing-list">${m.ing.map(x=>`<span>${x}</span>`).join("")}</div>
-      <div class="more">タップで作り方 ▶</div>
-    </div>`).join("");
+  let title;
+  if(selected==="fav"){
+    title = `<span class="emoji">⭐</span>お気に入り${suffix}（${list.length}品）`;
+    if(list.length===0){
+      grid.innerHTML = "";
+      document.getElementById("resultTitle").innerHTML = title;
+      empty.style.display = "block";
+      empty.textContent = "カードの ⭐ を押すと、ここに登録されます";
+      return;
+    }
+  } else {
+    const info = INGREDIENTS.find(g=>g.key===selected);
+    title = `<span class="emoji">${info.emoji}</span>${info.label}${suffix}のメニュー（${list.length}品）`;
+  }
+  document.getElementById("resultTitle").innerHTML = title;
+  grid.innerHTML = list.map((m,i)=>cardHTML(m, i===pickIdx)).join("");
 }
 
 function openRecipe(name){
@@ -483,6 +576,7 @@ function openRecipe(name){
   document.getElementById("mSteps").innerHTML = steps.map(s=>`<li>${s}</li>`).join("");
   const ov = document.getElementById("modalOverlay");
   ov.classList.add("open");
+  document.body.classList.add("modal-open");
   ov.querySelector(".modal").scrollTop = 0;
 }
 
@@ -490,9 +584,15 @@ function closeRecipe(e, force){
   // オーバーレイ自身のクリック、または×ボタンのときだけ閉じる
   if(force || e.target.id==="modalOverlay"){
     document.getElementById("modalOverlay").classList.remove("open");
+    document.body.classList.remove("modal-open");
   }
 }
-document.addEventListener("keydown", e=>{ if(e.key==="Escape") document.getElementById("modalOverlay").classList.remove("open"); });
+document.addEventListener("keydown", e=>{
+  if(e.key==="Escape"){
+    document.getElementById("modalOverlay").classList.remove("open");
+    document.body.classList.remove("modal-open");
+  }
+});
 
 function pickRandom(){
   if(!selected) return;
@@ -504,7 +604,59 @@ function pickRandom(){
   if(cards[idx]) cards[idx].scrollIntoView({behavior:"smooth", block:"center"});
 }
 
+// 全210品から1品選んで作り方まで表示
+function luckyPick(){
+  const m = MENUS[Math.floor(Math.random()*MENUS.length)];
+  openRecipe(m.name);
+}
+
+// ===== メニュー名検索（全食材横断） =====
+function onSearch(v){
+  searchQuery = v.trim();
+  document.getElementById("searchClear").classList.toggle("show", searchQuery.length>0);
+  if(searchQuery) renderSearch();
+  else { buildGenreBar(); renderMenus(); }
+}
+
+function renderSearch(){
+  const head = document.getElementById("resultHead");
+  const grid = document.getElementById("menuGrid");
+  const empty = document.getElementById("emptyMsg");
+  const bar = document.getElementById("genreBar");
+  bar.style.display = "none";
+  const q = searchQuery.toLowerCase();
+  const list = MENUS.filter(m =>
+    m.name.toLowerCase().includes(q) ||
+    m.tags.some(t=>t.includes(searchQuery)) ||
+    m.ing.some(x=>x.includes(searchQuery))
+  );
+  head.style.display = "flex";
+  document.getElementById("resultTitle").innerHTML = `🔍「${searchQuery}」の検索結果（${list.length}品）`;
+  if(list.length===0){
+    grid.innerHTML = "";
+    empty.style.display = "block";
+    empty.textContent = "見つかりませんでした。別の言葉で試してください";
+  } else {
+    empty.style.display = "none";
+    grid.innerHTML = list.map(m=>cardHTML(m,false)).join("");
+  }
+}
+
+function clearSearch(silent){
+  searchQuery = "";
+  const box = document.getElementById("searchBox");
+  if(box) box.value = "";
+  const c = document.getElementById("searchClear");
+  if(c) c.classList.remove("show");
+  if(!silent){ buildGenreBar(); renderMenus(); }
+}
+
 buildIngredients();
+// 前回選んだ食材を復元
+(function(){
+  const last = localStorage.getItem("dinner-last");
+  if(last && (last==="fav" || INGREDIENTS.some(g=>g.key===last))) selectIngredient(last);
+})();
 </script>
 </body>
 </html>
